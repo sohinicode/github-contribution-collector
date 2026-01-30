@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Contribution Collector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap');
+        
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Fira Code', monospace;
+            margin: 0;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            border: 2px solid #30363d;
+            border-radius: 6px;
+            background-color: #010409;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            max-width: 100%;
+            max-height: 70vh;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+        }
+
+        .commit-text { color: #39d353; }
+        .bug-text { color: #f85149; }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 17, 23, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .btn {
+            background-color: #238636;
+            color: white;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+            border: none;
+            margin-top: 20px;
+        }
+
+        .btn:hover {
+            background-color: #2ea043;
+        }
+
+        .controls-hint {
+            margin-top: 15px;
+            font-size: 0.8rem;
+            color: #8b949e;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="stats">
+        <div>Commits: <span id="score" class="commit-text">0</span></div>
+        <div>Streak: <span id="streak" class="commit-text">0</span></div>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="overlay">
+        <h1 id="title" class="text-4xl font-bold mb-4">Contribution Collector</h1>
+        <p id="message" class="text-center max-w-md mb-4 px-4">
+            Catch the green contribution squares. <br>
+            Avoid the red bugs to keep your streak alive!
+        </p>
+        <button id="start-btn" class="btn">Start Deployment</button>
+        <p class="controls-hint">Use Arrows, A/D, or Touch to move</p>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const streakEl = document.getElementById('streak');
+    const overlay = document.getElementById('overlay');
+    const startBtn = document.getElementById('start-btn');
+    const titleEl = document.getElementById('title');
+    const messageEl = document.getElementById('message');
+
+    // Game Constants
+    const CANVAS_WIDTH = 400;
+    const CANVAS_HEIGHT = 500;
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+
+    let score = 0;
+    let streak = 0;
+    let gameActive = false;
+    let player = {
+        x: CANVAS_WIDTH / 2 - 25,
+        y: CANVAS_HEIGHT - 40,
+        width: 50,
+        height: 10,
+        speed: 7,
+        dx: 0
+    };
+
+    let items = [];
+    let frameCount = 0;
+    let spawnRate = 60; // Spawn every 60 frames
+
+    // Input Handling
+    const keys = {};
+    document.addEventListener('keydown', (e) => keys[e.code] = true);
+    document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+    // Touch Handling
+    canvas.addEventListener('touchstart', (e) => {
+        const touchX = e.touches[0].clientX;
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = (touchX - rect.left) * (CANVAS_WIDTH / rect.width);
+        player.dx = canvasX < player.x + player.width / 2 ? -player.speed : player.speed;
+    });
+    canvas.addEventListener('touchend', () => player.dx = 0);
+
+    function spawnItem() {
+        const types = ['commit', 'commit', 'commit', 'bug']; // 75% chance commit, 25% bug
+        const type = types[Math.floor(Math.random() * types.length)];
+        const size = 20;
+        items.push({
+            x: Math.random() * (CANVAS_WIDTH - size),
+            y: -size,
+            size: size,
+            type: type,
+            speed: 3 + (score / 20) // Get faster as score increases
+        });
+    }
+
+    function resetGame() {
+        score = 0;
+        streak = 0;
+        items = [];
+        player.x = CANVAS_WIDTH / 2 - player.width / 2;
+        scoreEl.innerText = score;
+        streakEl.innerText = streak;
+        gameActive = true;
+        overlay.style.display = 'none';
+        requestAnimationFrame(update);
+    }
+
+    function gameOver() {
+        gameActive = false;
+        overlay.style.display = 'flex';
+        titleEl.innerText = "Build Failed!";
+        messageEl.innerHTML = `Final Commits: <span class="commit-text">${score}</span><br>Best Streak: ${streak}<br><br>A critical bug was merged into main.`;
+        startBtn.innerText = "Retry Deployment";
+    }
+
+    function update() {
+        if (!gameActive) return;
+
+        // Player Movement
+        if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
+        else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
+        else if (!('ontouchstart' in window)) player.dx = 0;
+
+        player.x += player.dx;
+
+        // Boundary checks
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.width > CANVAS_WIDTH) player.x = CANVAS_WIDTH - player.width;
+
+        // Item Logic
+        frameCount++;
+        if (frameCount % Math.max(20, spawnRate - Math.floor(score/5)) === 0) {
+            spawnItem();
+        }
+
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Draw Player (The Cursor/Editor bar)
+        ctx.fillStyle = '#58a6ff';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+        // Little "glow" for player
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#58a6ff';
+        ctx.strokeRect(player.x, player.y, player.width, player.height);
+        ctx.shadowBlur = 0;
+
+        // Draw and Update Items
+        for (let i = items.length - 1; i >= 0; i--) {
+            const item = items[i];
+            item.y += item.speed;
+
+            // Draw Item
+            if (item.type === 'commit') {
+                ctx.fillStyle = '#39d353'; // Level 4 green
+                ctx.fillRect(item.x, item.y, item.size, item.size);
+            } else {
+                ctx.fillStyle = '#f85149'; // Error red
+                // Draw a simple bug shape (X)
+                ctx.beginPath();
+                ctx.moveTo(item.x, item.y);
+                ctx.lineTo(item.x + item.size, item.y + item.size);
+                ctx.moveTo(item.x + item.size, item.y);
+                ctx.lineTo(item.x, item.y + item.size);
+                ctx.strokeStyle = '#f85149';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // Collision Detection
+            if (
+                item.y + item.size > player.y &&
+                item.x < player.x + player.width &&
+                item.x + item.size > player.x
+            ) {
+                if (item.type === 'commit') {
+                    score++;
+                    streak++;
+                    scoreEl.innerText = score;
+                    streakEl.innerText = streak;
+                    items.splice(i, 1);
+                } else {
+                    gameOver();
+                }
+            } 
+            // Missed item
+            else if (item.y > CANVAS_HEIGHT) {
+                if (item.type === 'commit') {
+                    streak = 0; // Lose streak if you miss a commit
+                    streakEl.innerText = streak;
+                }
+                items.splice(i, 1);
+            }
+        }
+
+        // Draw Grid Background Effect
+        ctx.strokeStyle = '#161b22';
+        ctx.lineWidth = 1;
+        for(let x=0; x<CANVAS_WIDTH; x+=20) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_HEIGHT); ctx.stroke();
+        }
+        for(let y=0; y<CANVAS_HEIGHT; y+=20) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
+        }
+
+        requestAnimationFrame(update);
+    }
+
+    startBtn.addEventListener('click', resetGame);
+
+</script>
+</body>
+</html>
